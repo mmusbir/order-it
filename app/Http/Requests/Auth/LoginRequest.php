@@ -43,8 +43,12 @@ class LoginRequest extends FormRequest
 
         $ldapService = app(\App\Services\LdapService::class);
 
-        // Try LDAP authentication if enabled
-        if ($ldapService->isEnabled()) {
+        // Check if user is superadmin - bypass LDAP and use local auth
+        $user = \App\Models\User::where('email', $this->email)->first();
+        $isSuperadmin = $user && $user->role === 'superadmin';
+
+        // Try LDAP authentication if enabled AND user is not superadmin
+        if ($ldapService->isEnabled() && !$isSuperadmin) {
             $ldapResult = $ldapService->authenticate($this->email, $this->password);
 
             if ($ldapResult['success'] && $ldapResult['user']) {

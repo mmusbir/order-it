@@ -105,6 +105,9 @@ class LdapService
                 $username = explode('@', $email)[0];
             }
 
+            // Variable to store user info from LDAP
+            $ldapUserInfo = null;
+
             // Construct user DN for authentication
             if ($isAd && $adDomain) {
                 // Active Directory uses UserPrincipalName
@@ -112,6 +115,23 @@ class LdapService
 
                 // Try direct bind with UPN
                 $userBind = @ldap_bind($ldapConn, $userDn, $password);
+
+                // If bind successful, search for user info for auto-provisioning
+                if ($userBind && $baseDn) {
+                    $searchFilter = "(sAMAccountName={$username})";
+                    $search = @ldap_search($ldapConn, $baseDn, $searchFilter, ['dn', 'mail', 'displayName', 'givenName', 'sn', 'department', 'title']);
+                    if ($search) {
+                        $entries = ldap_get_entries($ldapConn, $search);
+                        if ($entries['count'] > 0) {
+                            $ldapUserInfo = [
+                                'name' => $entries[0]['displayname'][0] ?? ($entries[0]['givenname'][0] ?? '') . ' ' . ($entries[0]['sn'][0] ?? ''),
+                                'email' => $entries[0]['mail'][0] ?? $username . '@' . $adDomain,
+                                'department' => $entries[0]['department'][0] ?? null,
+                                'title' => $entries[0]['title'][0] ?? null,
+                            ];
+                        }
+                    }
+                }
             } else {
                 // Standard LDAP - search for user first using admin bind
                 $bindUser = AppSetting::getValue('ldap_username');
@@ -130,9 +150,10 @@ class LdapService
                     ];
                 }
 
-                // Search for the user
-                $searchFilter = "({$authFilter}{$username})";
-                $search = @ldap_search($ldapConn, $baseDn, $searchFilter, ['dn', 'mail']);
+                // Search for the user - handle auth filter properly
+                $filterAttr = rtrim($authFilter, '=');
+                $searchFilter = "({$filterAttr}={$username})";
+                $search = @ldap_search($ldapConn, $baseDn, $searchFilter, ['dn', 'mail', 'displayName', 'cn', 'givenName', 'sn']);
 
                 if (!$search) {
                     $error = ldap_error($ldapConn);
@@ -159,6 +180,10 @@ class LdapService
                 }
 
                 $userDn = $entries[0]['dn'];
+                $ldapUserInfo = [
+                    'name' => $entries[0]['displayname'][0] ?? $entries[0]['cn'][0] ?? $username,
+                    'email' => $entries[0]['mail'][0] ?? $email,
+                ];
 
                 // Bind as the user to verify password
                 $userBind = @ldap_bind($ldapConn, $userDn, $password);
@@ -179,13 +204,41 @@ class LdapService
             // LDAP auth successful - find or create local user
             $user = User::where('email', $email)->first();
 
+            if (!$user && $ldapUserInfo && isset($ldapUserInfo['email'])) {
+                // Try finding by LDAP email
+                $user = User::where('email', $ldapUserInfo['email'])->first();
+            }
+
             if (!$user) {
                 // Try finding by username part of email
                 $user = User::where('email', 'like', $username . '@%')->first();
             }
 
+            // Auto-provision: Create user if not found and auto_provision is enabled
+            $autoProvision = (bool) AppSetting::getValue('ldap_auto_provision', true);
+
+            if (!$user && $autoProvision && $ldapUserInfo) {
+                $userEmail = $ldapUserInfo['email'] ?? ($username . '@' . ($adDomain ?? 'local'));
+                $userName = trim($ldapUserInfo['name'] ?? $username);
+
+                $user = User::create([
+                    'name' => $userName ?: $username,
+                    'email' => $userEmail,
+                    'password' => Hash::make($password),
+                    'role' => 'user', // Default role for LDAP users
+                    'department' => $ldapUserInfo['department'] ?? null,
+                    'email_verified_at' => now(),
+                ]);
+
+                Log::info('LDAP user auto-provisioned', [
+                    'user_id' => $user->id,
+                    'email' => $userEmail,
+                    'name' => $userName,
+                ]);
+            }
+
             if (!$user) {
-                Log::warning('LDAP auth successful but user not found in local database', ['email' => $email]);
+                Log::warning('LDAP auth successful but user not found and auto-provision disabled', ['email' => $email]);
                 return [
                     'success' => false,
                     'message' => 'User not found in system. Please contact administrator.',

@@ -531,7 +531,7 @@
 
                 <div class="flex items-center gap-4">
                     <!-- New Request Button (Static) -->
-                    @if(!in_array(Auth::user()->role, ['superadmin', 'admin']))
+                    @if(!in_array(Auth::user()->role, ['superadmin', 'admin', 'user']))
                     <a href="{{ route('requests.checkout') }}"
                         class="hidden md:flex items-center gap-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-sm font-medium transition shadow-sm">
                         <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">

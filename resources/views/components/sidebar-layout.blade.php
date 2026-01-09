@@ -541,7 +541,7 @@
                     </a>
                     @endif
 
-                    <!-- Search -->
+                    {{-- Search - Disabled for now
                     <div class="relative hidden md:block">
                         <svg class="w-5 h-5 text-gray-400 absolute left-3 top-1/2 transform -translate-y-1/2"
                             fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -551,6 +551,7 @@
                         <input type="text" placeholder="Search requests, assets, or users..."
                             class="pl-10 pr-4 py-2 w-72 bg-gray-100 dark:bg-gray-700 border-0 rounded-lg text-sm text-gray-900 dark:text-white placeholder-gray-500 focus:ring-2 focus:ring-indigo-500">
                     </div>
+                    --}}
 
                     <!-- Dark Mode Toggle -->
                     <button @click="$dispatch('toggle-dark-mode')"
